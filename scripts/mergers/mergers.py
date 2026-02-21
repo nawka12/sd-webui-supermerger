@@ -1810,7 +1810,9 @@ def forge_loader(state_dict, additional_state_dicts):
         local_path = os.path.join(fld.HF, repo_name)
     else:
         local_path = os.path.join(os.path.dirname(fld.__file__), 'huggingface', repo_name)
-    config: dict = fld.DiffusionPipeline.load_config(local_path)
+    # DiffusionPipeline moved to a local import inside Forge Neo's loader function
+    _DiffusionPipeline = fld.DiffusionPipeline if hasattr(fld, 'DiffusionPipeline') else __import__('diffusers', fromlist=['DiffusionPipeline']).DiffusionPipeline
+    config: dict = _DiffusionPipeline.load_config(local_path)
     huggingface_components = {}
     for component_name, v in config.items():
         if isinstance(v, list) and len(v) == 2:
