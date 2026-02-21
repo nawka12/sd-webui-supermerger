@@ -102,7 +102,14 @@ def savemodel(state_dict,currentmodel,fname,savesets,metadata={}):
     else:
         fname = fname if ext in fname else fname +pre+ext
 
-    fname = os.path.join(shared.cmd_opts.ckpt_dir if shared.cmd_opts.ckpt_dir is not None else sd_models.model_path, fname)
+    # ckpt_dir (singular) in A1111/reForge; ckpt_dirs (list) in Forge Neo
+    if hasattr(shared.cmd_opts, 'ckpt_dir'):
+        _ckpt = shared.cmd_opts.ckpt_dir
+    elif hasattr(shared.cmd_opts, 'ckpt_dirs') and shared.cmd_opts.ckpt_dirs:
+        _ckpt = shared.cmd_opts.ckpt_dirs[0]
+    else:
+        _ckpt = None
+    fname = os.path.join(_ckpt if _ckpt is not None else sd_models.model_path, fname)
     fname = fname.replace("ProgramFiles_x86_","Program Files (x86)")
 
     if len(fname) > 255:
