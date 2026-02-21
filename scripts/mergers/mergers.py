@@ -1803,7 +1803,13 @@ def forge_loader(state_dict, additional_state_dicts):
     
     repo_name = estimated_config.huggingface_repo
 
-    local_path = os.path.join(fld.dir_path, 'huggingface', repo_name)
+    # dir_path was removed in Forge Neo; use HF constant or derive from __file__
+    if hasattr(fld, 'dir_path'):
+        local_path = os.path.join(fld.dir_path, 'huggingface', repo_name)
+    elif hasattr(fld, 'HF'):
+        local_path = os.path.join(fld.HF, repo_name)
+    else:
+        local_path = os.path.join(os.path.dirname(fld.__file__), 'huggingface', repo_name)
     config: dict = fld.DiffusionPipeline.load_config(local_path)
     huggingface_components = {}
     for component_name, v in config.items():
