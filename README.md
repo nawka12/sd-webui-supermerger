@@ -29,6 +29,11 @@ This extension significantly improves the efficiency of model merging by elimina
 - [Elemental Merge](elemental_en.md)
 
 # Recent Update
+2025.02.21
+- Fixed ImportError on startup caused by `xformers/flash_attn_3/_C.so` being incompatible with newer PyTorch versions (e.g. `torch_list_push_back` undefined symbol). The broken `.so` is now safely stubbed out so the extension loads correctly regardless of the xformers/PyTorch version mismatch.
+- Added support for Forge Neo
+- Added extended XL merge
+
 2024.02.02 0000(JST)
 - bug fix
 - MakeLoRaの標識が変わりました。Dreanboothに習ってモデル名をTunedとOriginalに変更しています。

@@ -3,6 +3,8 @@
 
 import math
 import os
+import sys
+import types
 import torch
 try:
     import intel_extension_for_pytorch as ipex
@@ -11,6 +13,19 @@ try:
         ipex_init()
 except Exception:
     pass
+
+# Workaround: xformers flash_attn_3/_C.so may contain symbols incompatible with
+# the installed PyTorch version (e.g. torch_list_push_back removed in PyTorch 2.8).
+# flash_attn_3's __init__.py is empty so it succeeds, but _C.so fails.
+# xformers' flash3.py uses find_spec("...flash_attn_3._C") — if flash_attn_3's
+# __path__ points to the real directory, find_spec finds _C.so and tries to load it.
+# We unconditionally replace flash_attn_3 with an empty-path stub so find_spec
+# returns None and the broken .so is never loaded.
+_fa3 = types.ModuleType('xformers.flash_attn_3')
+_fa3.__path__ = []  # empty path → find_spec for ._C returns None
+sys.modules['xformers.flash_attn_3'] = _fa3
+sys.modules.pop('xformers.flash_attn_3._C', None)  # remove any cached broken state
+
 import diffusers
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPTextConfig, logging
 from diffusers import AutoencoderKL, DDIMScheduler, StableDiffusionPipeline  # , UNet2DConditionModel
