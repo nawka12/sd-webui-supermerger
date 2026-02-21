@@ -29,6 +29,13 @@ This extension significantly improves the efficiency of model merging by elimina
 - [Elemental Merge](elemental_en.md)
 
 # Recent Update
+2025.02.22
+- **Forge Neo compatibility fixes** — the extension now works on both reForge and Forge Neo:
+  - Fixed `ImportError: cannot import name 'sd_hijack'` on startup (`sd_hijack` does not exist in Forge Neo)
+  - Fixed `AttributeError: 'Namespace' object has no attribute 'ckpt_dir'` when saving a merged model (`ckpt_dirs` list in Forge Neo vs `ckpt_dir` string in reForge)
+  - Fixed `AttributeError: module 'backend.loader' has no attribute 'dir_path'` when loading a merged model (`dir_path` replaced by `HF` constant in Forge Neo)
+  - Fixed `AttributeError: module 'backend.loader' has no attribute 'DiffusionPipeline'` when loading a merged model (`DiffusionPipeline` is no longer a module-level attribute in Forge Neo)
+
 2025.02.21
 - Fixed ImportError on startup caused by `xformers/flash_attn_3/_C.so` being incompatible with newer PyTorch versions (e.g. `torch_list_push_back` undefined symbol). The broken `.so` is now safely stubbed out so the extension loads correctly regardless of the xformers/PyTorch version mismatch.
 - Added support for Forge Neo
