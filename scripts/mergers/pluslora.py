@@ -25,6 +25,7 @@ from scripts.mergers.mergers import extract_super, unload_forge, q_dequantize, q
 from tqdm import tqdm
 
 forge = launch_utils.git_tag()[0:2] == "f2"
+neo = launch_utils.git_tag() == "neo"
 
 selectable = []
 pchanged = False
@@ -329,7 +330,7 @@ def makelora(model_a,model_b,dim,saveto,settings,alpha,beta,save_precision,calc_
 
     print(f"Detected model type: SDXL: {is_sdxl}, SD2.X: {is_sd2}, SD1.X: {is_sd1}")
 
-    if forge:
+    if forge or neo:
         unload_forge()
     else:
         sd_models.unload_model_weights()
@@ -793,8 +794,10 @@ def pluslora(lnames,loraratios,settings,output,model,save_precision,calc_precisi
 
     checkpoint_info = sd_models.get_closet_checkpoint_match(model)
 
-    if forge:
-        revert_target = sd_models.get_closet_checkpoint_match(shared.opts.sd_model_checkpoint)
+    if forge or neo:
+        from modules.sd_models import model_data as _md
+        revert_target = _md.forge_loading_parameters.get("checkpoint_info") or \
+            sd_models.get_closet_checkpoint_match(shared.opts.sd_model_checkpoint)
     print(f"Loading {model}")
 
     theta_0 = read_model_state_dict(checkpoint_info, device)
@@ -840,7 +843,7 @@ def pluslora(lnames,loraratios,settings,output,model,save_precision,calc_precisi
         else:
             orig_checkpoint = None
         checkpoint_info = sd_models.get_closet_checkpoint_match(model)
-        if orig_checkpoint != checkpoint_info:
+        if orig_checkpoint != checkpoint_info and not (forge or neo):
             sd_models.reload_model_weights(info=checkpoint_info)
         
         theta_0 = newpluslora(theta_0,filenames,lweis,names, calc_precision, isxl,isv2,isflux, keychanger)
@@ -859,7 +862,7 @@ def pluslora(lnames,loraratios,settings,output,model,save_precision,calc_precisi
         if need_revert:
             prefixer(theta_0, True)
 
-        if orig_checkpoint:
+        if orig_checkpoint and not (forge or neo):
             sd_models.reload_model_weights(info=orig_checkpoint)
     else:
         theta_0 = oldpluslora(theta_0,filenames,lweis,names, calc_precision,isxl,isv2, keychanger, device)
@@ -870,8 +873,9 @@ def pluslora(lnames,loraratios,settings,output,model,save_precision,calc_precisi
     result = savemodel(theta_0,dname,output,settings)
 
     lora.loaded_loras.clear()
-    sd_models.checkpoints_loaded.clear()
-    if forge:
+    if not (forge or neo):
+        sd_models.checkpoints_loaded.clear()
+    if forge or neo:
         from modules.sd_models import FakeInitialModel
         sd_models.unload_model_weights()
         sd_models.checkpoint_info = FakeInitialModel()
@@ -1718,7 +1722,7 @@ def get_flux_blocks(key):
     return "Not Merge"
 
 def read_model_state_dict(checkpoint_info, device):
-    if forge:
+    if forge or neo:
         from backend.utils import load_torch_file
         load_model(checkpoint_info)
         return load_torch_file(checkpoint_info.filename,device=CUDA if "cuda" in device else CPU)
@@ -1726,7 +1730,7 @@ def read_model_state_dict(checkpoint_info, device):
         return sd_models.read_state_dict(checkpoint_info.filename,map_location=device)
     
 def load_model(checkpoint_info, reload = False):
-    if forge:
+    if forge or neo:
         from modules.sd_models import forge_model_reload, model_data
         from modules_forge.main_entry import forge_unet_storage_dtype_options
         unet_storage_dtype, _ = forge_unet_storage_dtype_options.get(shared.opts.forge_unet_storage_dtype, (None, False))

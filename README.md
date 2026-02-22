@@ -30,6 +30,12 @@ This extension significantly improves the efficiency of model merging by elimina
 
 # Recent Update
 2026.02.22
+- **Plus LoRA Forge Neo compatibility fixes** — Plus LoRA now works on Forge Neo:
+  - Fixed `AttributeError: module 'modules.sd_models' has no attribute 'read_state_dict'` when loading a model for LoRA merging (`pluslora.py` and `A1111/networks.py` were not detecting Forge Neo's `"neo"` git tag, only `"f2"`)
+  - Fixed `AttributeError: module 'modules.sd_models' has no attribute 'reload_model_weights'` when reverting model after LoRA merge (not needed on Forge Neo — model load/revert is already handled by the forge backend path)
+  - Fixed `AttributeError: module 'modules.sd_models' has no attribute 'checkpoints_loaded'` after saving the merged model (A1111 cache not present in Forge Neo)
+  - Fixed `ValueError: Failed to find available model` when reverting to the original model after Plus LoRA (`sd_model_checkpoint` is empty in Forge Neo; now reads the active checkpoint from `model_data.forge_loading_parameters` instead)
+  - Fixed `AttributeError: 'Options' object has no attribute 'lora_in_memory_limit'` in `A1111/networks.py` (option not present in Forge Neo; defaults to 0)
 - **Forge Neo compatibility fixes** — the extension now works on both reForge and Forge Neo:
   - Fixed `ImportError: cannot import name 'sd_hijack'` on startup (`sd_hijack` does not exist in Forge Neo)
   - Fixed `AttributeError: 'Namespace' object has no attribute 'ckpt_dir'` when saving a merged model (`ckpt_dirs` list in Forge Neo vs `ckpt_dir` string in reForge)

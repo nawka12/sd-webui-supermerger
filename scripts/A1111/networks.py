@@ -40,6 +40,7 @@ module_types = [
 ]
 
 forge = launch_utils.git_tag()[0:2] == "f2"
+neo = launch_utils.git_tag() == "neo"
 
 re_digits = re.compile(r"\d+")
 re_x_proj = re.compile(r"(.*)_([qkv]_proj)$")
@@ -141,15 +142,15 @@ def assign_network_names_to_compvis_modules(sd_model):
 
     if shared.sd_model.is_sdxl:
         forges = [shared.sd_model.forge_objects.clip.cond_stage_model.clip_l, shared.sd_model.forge_objects.clip.cond_stage_model.clip_g]
-        for i, embedder in enumerate(forges if forge else shared.sd_model.conditioner.embedders):
-            if not forge and not hasattr(embedder, 'wrapped'):
+        for i, embedder in enumerate(forges if forge or neo else shared.sd_model.conditioner.embedders):
+            if not (forge or neo) and not hasattr(embedder, 'wrapped'):
                 continue
-                
-            cmodules = embedder.named_modules() if forge else embedder.wrapped.named_modules()
+
+            cmodules = embedder.named_modules() if forge or neo else embedder.wrapped.named_modules()
 
             for name, module in cmodules:
                 network_name = f'{i}_{name.replace(".", "_")}'
-                if forge and i == 1:
+                if (forge or neo) and i == 1:
                     network_name = network_name.replace("1_transformer_text_model_encoder_layers","1_model_transformer_resblocks")
                     network_name = network_name.replace("self_attn", "attn")
                     network_name = network_name.replace('mlp_fc2', 'mlp_c_proj')
@@ -158,14 +159,14 @@ def assign_network_names_to_compvis_modules(sd_model):
                 module.network_layer_name = network_name
 
     else:
-        cond_stage_model = shared.sd_model.forge_objects.clip.cond_stage_model if forge else getattr( shared.sd_model.cond_stage_model, 'wrapped', shared.sd_model.cond_stage_model)
+        cond_stage_model = shared.sd_model.forge_objects.clip.cond_stage_model if forge or neo else getattr( shared.sd_model.cond_stage_model, 'wrapped', shared.sd_model.cond_stage_model)
 
         for name, module in cond_stage_model.named_modules():
             network_name = name.replace(".", "_")
             network_layer_mapping[network_name] = module
             module.network_layer_name = network_name
 
-    for name, module in shared.sd_model.forge_objects.unet.model.named_modules() if forge else shared.sd_model.model.named_modules():
+    for name, module in shared.sd_model.forge_objects.unet.model.named_modules() if forge or neo else shared.sd_model.model.named_modules():
         network_name = name.replace(".", "_")
         network_layer_mapping[network_name] = module
         module.network_layer_name = network_name
@@ -181,7 +182,7 @@ class BundledTIHash(str):
         return self.hash if shared.opts.lora_bundled_ti_to_infotext else ''
 
 def read_state_dict(filename):
-    if forge:
+    if forge or neo:
         from backend.utils import load_torch_file
         return load_torch_file(filename)
     try:
@@ -305,7 +306,7 @@ def load_network(name, network_on_disk, isxl, is_sd2):
 
 
 def purge_networks_from_memory():
-    while len(networks_in_memory) > shared.opts.lora_in_memory_limit and len(networks_in_memory) > 0:
+    while len(networks_in_memory) > getattr(shared.opts, 'lora_in_memory_limit', 0) and len(networks_in_memory) > 0:
         name = next(iter(networks_in_memory))
         networks_in_memory.pop(name, None)
 
