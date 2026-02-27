@@ -682,6 +682,9 @@ def network_MultiheadAttention_load_state_dict(self, *args, **kwargs):
 
 def process_network_files(names: list[str] | None = None):
     candidates = list(shared.walk_files(shared.cmd_opts.lora_dir, allowed_extensions=[".pt", ".ckpt", ".safetensors"]))
+    # Also scan extra lora_dirs on Forge Neo (--lora-dirs, plural)
+    for extra_dir in getattr(shared.cmd_opts, 'lora_dirs', []):
+        candidates += list(shared.walk_files(extra_dir, allowed_extensions=[".pt", ".ckpt", ".safetensors"]))
     try:
         candidates += list(shared.walk_files(shared.cmd_opts.lyco_dir_backcompat, allowed_extensions=[".pt", ".ckpt", ".safetensors"]))
     except:
