@@ -1654,8 +1654,10 @@ def clearcache(model_c):
         from modules.sd_models import forge_model_reload, model_data
         from modules_forge.main_entry import forge_unet_storage_dtype_options
         unet_storage_dtype, _ = forge_unet_storage_dtype_options.get(shared.opts.forge_unet_storage_dtype, (None, False))
+        # revert_target is "" until a merge runs; fall back to current checkpoint
+        target = revert_target if hasattr(revert_target, 'filename') else sd_models.get_closet_checkpoint_match(shared.opts.sd_model_checkpoint)
         forge_model_params = dict(
-            checkpoint_info=revert_target,
+            checkpoint_info=target,
             additional_modules=shared.opts.forge_additional_modules,
             unet_storage_dtype=unet_storage_dtype
         )

@@ -29,6 +29,12 @@ This extension significantly improves the efficiency of model merging by elimina
 - [Elemental Merge](elemental_en.md)
 
 # Recent Update
+2026.02.28
+- **Fix Clear Cache crash on Forge Neo** — clicking "Clear Cache" before running any merge raised `AttributeError: 'str' object has no attribute 'filename'` in `forge_model_reload`. `revert_target` is initialized as `""` and only set to a proper checkpoint info object after a merge; the fallback now uses `sd_models.get_closet_checkpoint_match()` to retrieve the current checkpoint when `revert_target` hasn't been populated yet.
+
+2026.02.27
+- **Fix `--lora-dirs` LoRAs not found during merge on Forge Neo** — when extra LoRA directories were specified via `--lora-dirs`, LoRAs stored only in those directories were silently skipped during merge. `scripts/A1111/networks.py` now scans all extra dirs in addition to the default `lora_dir`.
+
 2026.02.22
 - **Plus LoRA Forge Neo compatibility fixes** — Plus LoRA now works on Forge Neo:
   - Fixed `AttributeError: module 'modules.sd_models' has no attribute 'read_state_dict'` when loading a model for LoRA merging (`pluslora.py` and `A1111/networks.py` were not detecting Forge Neo's `"neo"` git tag, only `"f2"`)
