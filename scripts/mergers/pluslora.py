@@ -507,7 +507,15 @@ def merge_lora_models(models, ratios, sets, locon, calc_precision, device):
             if 'alpha' in key or "dora" in key:
                 continue
 
-            lora_module_name = key[:key.rfind(".lora_")]
+            if ".lora_" in key:
+                lora_module_name = key[:key.rfind(".lora_")]
+            elif ".lokr_" in key:
+                lora_module_name = key[:key.rfind(".lokr_")]
+            else:
+                continue
+
+            if lora_module_name not in base_alphas or lora_module_name not in alphas:
+                continue
 
             base_alpha = base_alphas[lora_module_name]
             alpha = alphas[lora_module_name]
@@ -1268,6 +1276,18 @@ def dimalpha(lora_sd, base_dims={}, base_alphas={}):
                 base_alphas[lora_module_name] = alpha
         elif "lora_down" in key:
             lora_module_name = key[:key.rfind(".lora_down")]
+            dim = lora_sd[key].size()[0]
+            dims[lora_module_name] = dim
+            if lora_module_name not in base_dims:
+                base_dims[lora_module_name] = dim
+        elif ".lokr_w1" in key:
+            lora_module_name = key[:key.rfind(".lokr_w1")]
+            dim = lora_sd[key].size()[0]
+            dims[lora_module_name] = dim
+            if lora_module_name not in base_dims:
+                base_dims[lora_module_name] = dim
+        elif ".lokr_w" in key and ".lokr_w1" not in key and ".lokr_w2" not in key:
+            lora_module_name = key[:key.rfind(".lokr_w")]
             dim = lora_sd[key].size()[0]
             dims[lora_module_name] = dim
             if lora_module_name not in base_dims:
