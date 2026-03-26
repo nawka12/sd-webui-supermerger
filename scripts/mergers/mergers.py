@@ -137,8 +137,18 @@ def smergegen(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,m
 
     save = True if SAVEMODES[0] in save_sets else False
     if theta_0 is None:
-        # streaming save already completed inside smerge(); result string was returned directly
-        pass  # result is already set from smerge() return value
+        # Streaming save completed inside smerge(). Load the saved file from disk into GPU.
+        _saved_path = metadata.pop("_stream_save_path", None)
+        if _saved_path and os.path.isfile(_saved_path):
+            sd_models.list_models()
+            _saved_info = next(
+                (ci for ci in sd_models.checkpoints_list.values()
+                 if hasattr(ci, "filename") and ci.filename == _saved_path),
+                None,
+            )
+            if _saved_info is None:
+                _saved_info = checkpoint_info  # fallback: reload model A info
+            model_loader(_saved_info, None, metadata, currentmodel)
     else:
         result = savemodel(theta_0,currentmodel,custom_name,save_sets,metadata) if save else "Merged model loaded:"+currentmodel
         model_loader(checkpoint_info, theta_0, metadata, currentmodel)
@@ -493,6 +503,7 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
                 currentmodel = makemodelname(_wa_str, _wb_str, model_a, model_b, model_c,
                                              base_alpha, base_beta, useblocks, mode, calcmode)
                 modelid = rwmergelog(currentmodel, mergedmodel)
+                metadata["_stream_save_path"] = _save_path
                 return f"Merged model saved: {_save_path}", currentmodel, modelid, None, metadata
     # ---- End streaming intercept ----
 
