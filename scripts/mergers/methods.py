@@ -23,11 +23,17 @@ from sd_mecha.extensions.builtin.merge_methods import linear as _mm_linear
 from sd_mecha.extensions.builtin.merge_methods import ties as _mm_ties
 from sd_mecha.extensions.builtin.merge_methods import cosine as _mm_cosine
 
-# Inspect add_cosine_a to confirm Category (bare Tensor vs StateDict).
-# If it needs StateDict, replace direct calls below with _call().
+# Inspect add_cosine_a and add_cosine_b to confirm Category (bare Tensor vs StateDict).
+# If they need StateDict, replace direct calls below with _call().
 import inspect as _inspect
 _cosine_a_src = _inspect.getsource(_mm_cosine.add_cosine_a.__wrapped__)
-_COSINE_IS_STATEDICT = "kwargs[" in _cosine_a_src or "[key]" in _cosine_a_src
+_cosine_b_src = _inspect.getsource(_mm_cosine.add_cosine_b.__wrapped__)
+_COSINE_A_IS_STATEDICT = "kwargs[" in _cosine_a_src or "[key]" in _cosine_a_src
+_COSINE_B_IS_STATEDICT = "kwargs[" in _cosine_b_src or "[key]" in _cosine_b_src
+assert _COSINE_A_IS_STATEDICT == _COSINE_B_IS_STATEDICT, (
+    "add_cosine_a and add_cosine_b have inconsistent calling conventions"
+)
+_COSINE_IS_STATEDICT = _COSINE_A_IS_STATEDICT
 
 IN_SCOPE_CALCMODES: frozenset = frozenset({
     "normal",
@@ -134,25 +140,32 @@ def dispatch(calcmode: str, mode: str, key: str,
     # ---- ties_sum: operates on deltas ----
     if calcmode == "ties_sum":
         delta = t1.float() - t0.float()
+        # alpha is intentionally not applied: TIES-merging trims the delta
+        # by sign consensus and applies the full trimmed delta (not scaled by alpha).
         trimmed = _mm_ties.ties_sum.__wrapped__(delta, k=1.0, vote_sgn=False)
         return (t0.float() + trimmed).to(t0.dtype)
 
     # ---- dropout (ties.dropout primitive, not wrappers.dropout) ----
     if calcmode == "dropout":
         delta = t1.float() - t0.float()
+        # probability must be a plain Python float — math.isclose() is called on it internally.
+        _prob = 0.9
+        assert isinstance(_prob, float), "probability must be a plain float, not a Tensor"
         dared = _mm_ties.dropout.__wrapped__(
-            delta, probability=0.9, rescale=1.0, seed=None)
-        return _call(_mm_linear.add_difference, key, t0, dared, alpha=a)
+            delta, probability=_prob, rescale=1.0, seed=None)
+        return _call(_mm_linear.add_difference, key, t0.float(), dared, alpha=a).to(t0.dtype)
 
     # ---- add_ties_with_dare: 3-step chain ----
     if calcmode == "add_ties_with_dare":
         delta = t1.float() - t0.float()
-        # probability must be plain float -- math.isclose() is called on it internally.
+        # probability must be a plain Python float — math.isclose() is called on it internally.
+        _prob = 0.9
+        assert isinstance(_prob, float), "probability must be a plain float, not a Tensor"
         # apply_stock=True avoids get_model_stock_t which requires >=2 deltas for pairwise
         # cosine similarity; with a single delta (one model pair) it would raise RuntimeError.
         result_delta = _mm_ties.ties_sum_with_dropout.__wrapped__(
             delta,
-            probability=0.9,   # plain float
+            probability=_prob,
             della_eps=0.0,
             rescale=True,
             k=1.0,
@@ -165,6 +178,6 @@ def dispatch(calcmode: str, mode: str, key: str,
             ftol=1e-20,
             seed=None,
         )
-        return _call(_mm_linear.add_difference, key, t0, result_delta, alpha=a)
+        return _call(_mm_linear.add_difference, key, t0.float(), result_delta, alpha=a).to(t0.dtype)
 
     raise ValueError(f"Unknown calcmode for methods.dispatch: {calcmode!r}")
