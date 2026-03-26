@@ -148,15 +148,15 @@ def merge_and_save(
                 t1_raw = sf_b.get_tensor(raw_key_b)
                 if raw_key_c is not None:
                     t2_raw = sf_c.get_tensor(raw_key_c)
-                    # shape mismatch check (inpaint models)
-                    a_s, b_s = list(t1_raw.shape), list(t2_raw.shape)
+                    # shape mismatch check (inpaint models): compare A vs B
+                    a_s, b_s = list(t0.shape), list(t1_raw.shape)
                     if a_s != b_s and a_s[0:1] + a_s[2:] == b_s[0:1] + b_s[2:]:
                         t1_slice = t1_raw[:, 0:4, :, :]
                     else:
                         t1_slice = t1_raw
                     t1 = (t1_slice.to(torch.float32) - t2_raw.to(torch.float32)).to(t1_raw.dtype)
                 else:
-                    t1 = torch.zeros_like(t1_raw.to(torch.float16))
+                    t1 = torch.zeros(t1_raw.shape, dtype=_orig_dtype, device=t1_raw.device)
                 t2 = None
             else:
                 t1 = sf_b.get_tensor(raw_key_b)

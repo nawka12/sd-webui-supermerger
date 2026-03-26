@@ -104,6 +104,8 @@ class TestMergeAndSave:
                          isxl=False, isflux=True, alpha=0.5)
         result = _load_file(out)
         assert len(result) == 1
+        # Flux bare keys get prefixed in output
+        assert "model.diffusion_model.double_blocks.0.weight" in result
 
     def test_dtype_preserved_float16(self, tmp_path):
         """Output tensor should preserve input dtype (float16), not be promoted to float32."""
