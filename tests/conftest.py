@@ -6,7 +6,6 @@ needing a running WebUI environment.
 import sys
 import types
 import os
-import pytest
 
 # --- Add sd_mecha submodule to path ---
 _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
