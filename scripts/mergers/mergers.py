@@ -244,7 +244,12 @@ def resolve_alpha(key, isxl, isflux, useblocks, usebeta,
     else:
         return current_alpha, current_beta, True  # key not in any block → skip
 
-    weight_index_xl = BLOCKIDXLLL.index(block)
+    # weight_index_xl is only needed when useblocks=True or deep is non-empty.
+    # For SD1.5 keys, 'block' may not be in BLOCKIDXLLL, so guard the lookup.
+    if useblocks or len(deep) > 0:
+        weight_index_xl = BLOCKIDXLLL.index(block) if block in BLOCKIDXLLL else 0
+    else:
+        weight_index_xl = 0
 
     if useblocks:
         if weight_index > 0:
