@@ -408,7 +408,96 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
             caster(f"from {weights_b_t}, beta = {base_beta},weights_a ={weights_b}",hearm)
             if not(len(weights_b) == 25 or len(weights_b) == 19 or len(weights_a) == 60 or len(weights_a) == 109): return f"ERROR: weights beta value must be 20 or 26 or 61, or 110.",*NON4
 
-    #model loading start 
+    # ---- True streaming intercept (BEFORE model loading) ----
+    _do_save = SAVEMODES[0] in save_sets or SAVEMODES[1] in save_sets
+    if _do_save and calcmode in _merge_methods.IN_SCOPE_CALCMODES:
+        # Resolve model B path (always needed; detect arch from B)
+        _info_b = sd_models.get_closet_checkpoint_match(model_b)
+        _path_b = _info_b.filename if _info_b else None
+
+        if _path_b and _path_b.endswith('.safetensors'):
+            _info_a = sd_models.get_closet_checkpoint_match(model_a)
+            _path_a = _info_a.filename if _info_a else None
+
+            _add_mode = MODES[1] in mode
+            _needs_c = _add_mode or MODES[2] in mode or MODES[3] in mode
+            _path_c = None
+            if _needs_c:
+                _info_c = sd_models.get_closet_checkpoint_match(model_c)
+                _path_c = _info_c.filename if _info_c else None
+
+            _all_st = (
+                _path_a and _path_a.endswith('.safetensors') and
+                (_path_c is None or _path_c.endswith('.safetensors'))
+            )
+
+            if _path_a and _all_st:
+                # Detect architecture from model B header (no full load)
+                isxl, isflux, _, _ = _streamer.detect_arch(_path_b)
+
+                # XL weight adjustments (normally at lines 428-437 after loading theta_1)
+                _w_a = list(weights_a) if isinstance(weights_a, list) else weights_a
+                _w_b = list(weights_b) if isinstance(weights_b, list) else weights_b
+                if isxl and useblocks:
+                    if isinstance(_w_a, list) and len(_w_a) == 25:
+                        _w_a = weighttoxl(_w_a)
+                        print(f"alpha weight converted for XL (streaming){_w_a}")
+                    if usebeta and isinstance(_w_b, list) and len(_w_b) == 25:
+                        _w_b = weighttoxl(_w_b)
+                        print(f"beta weight converted for XL (streaming){_w_b}")
+                    if isinstance(_w_a, list) and len(_w_a) == 19:
+                        _w_a = _w_a + [0]
+                    if isinstance(_w_b, list) and len(_w_b) == 19:
+                        _w_b = _w_b + [0]
+
+                # Build save path (same logic as old intercept)
+                import os as _os
+                _pre = ".fp16" if "fp16" in save_sets else ""
+                _ext = ".safetensors" if "safetensors" in save_sets else ".ckpt"
+                _fname = custom_name if custom_name and custom_name != "" else ""
+                if not _fname:
+                    _mname = makemodelname(
+                        ",".join(str(x) for x in _w_a) if useblocks else str(base_alpha),
+                        ",".join(str(x) for x in _w_b) if useblocks else str(base_beta),
+                        model_a, model_b, model_c, base_alpha, base_beta,
+                        useblocks, mode, calcmode,
+                    )
+                    _fname = _mname.replace(" ", "").replace(",", "_").replace("(","_").replace(")","_")
+                _fname = _fname if _ext in _fname else _fname + _pre + _ext
+                if hasattr(cmd_opts, 'ckpt_dir') and cmd_opts.ckpt_dir:
+                    _save_dir = cmd_opts.ckpt_dir
+                elif hasattr(cmd_opts, 'ckpt_dirs') and cmd_opts.ckpt_dirs:
+                    _save_dir = cmd_opts.ckpt_dirs[0]
+                else:
+                    _save_dir = sd_models.model_path
+                _save_path = _os.path.join(_save_dir, _fname)
+
+                _streamer.merge_and_save(
+                    path_a=_path_a,
+                    path_b=_path_b,
+                    path_c=_path_c,
+                    save_path=_save_path,
+                    calcmode=calcmode, mode=mode,
+                    base_alpha=base_alpha, base_beta=base_beta,
+                    weights_a=_w_a if useblocks else [],
+                    weights_b=_w_b if useblocks and usebeta else [],
+                    isxl=isxl, isflux=isflux,
+                    useblocks=useblocks, usebeta=usebeta,
+                    deep=deep, randomer=randomer, lucks=lucks,
+                    deepprint=deepprint, esettings=esettings,
+                    inex=inex, ex_blocks=ex_blocks, ex_elems=ex_elems,
+                    add_mode=_add_mode,
+                    device=device,
+                )
+                _wa_str = ",".join(str(x) for x in weights_a_excluded if x is not None)
+                _wb_str = ",".join(str(x) for x in weights_b_excluded if x is not None)
+                currentmodel = makemodelname(_wa_str, _wb_str, model_a, model_b, model_c,
+                                             base_alpha, base_beta, useblocks, mode, calcmode)
+                modelid = rwmergelog(currentmodel, mergedmodel)
+                return f"Merged model saved: {_save_path}", currentmodel, modelid, None, metadata
+    # ---- End streaming intercept ----
+
+    #model loading start
     caster("Model loading start",hearm)
     printstart(model_a,model_b,model_c,base_alpha,base_beta,weights_a,weights_b,mode,useblocks,calcmode,deep,lucks['ceed'],fine,inex,ex_blocks,ex_elems,device)
 
@@ -486,54 +575,6 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
 
     if theta_2 is not None:
         to_qdtype(theta_0, theta_2, qdtypes[0], qdtypes[2], device, "Model A", "Model C")
-
-    # ---- Streaming save path ----
-    _do_save = SAVEMODES[0] in save_sets or SAVEMODES[1] in save_sets
-    if _do_save and calcmode in _merge_methods.IN_SCOPE_CALCMODES:
-        # Build output path using the same logic as savemodel() in model_util.py
-        import os as _os
-        from modules import sd_models as _sd_models
-        from modules.shared import cmd_opts as _cmd_opts
-        _pre = ".fp16" if "fp16" in save_sets else ""
-        _ext = ".safetensors" if "safetensors" in save_sets else ".ckpt"
-        _fname = custom_name if custom_name and custom_name != "" else ""
-        if not _fname:
-            _mname = makemodelname(
-                ",".join(str(x) for x in weights_a) if useblocks else str(base_alpha),
-                ",".join(str(x) for x in weights_b) if useblocks else str(base_beta),
-                model_a, model_b, model_c, base_alpha, base_beta,
-                useblocks, mode, calcmode,
-            )
-            _fname = _mname.replace(" ", "").replace(",", "_").replace("(","_").replace(")","_")
-        _fname = _fname if _ext in _fname else _fname + _pre + _ext
-        if hasattr(_cmd_opts, 'ckpt_dir') and _cmd_opts.ckpt_dir:
-            _save_dir = _cmd_opts.ckpt_dir
-        elif hasattr(_cmd_opts, 'ckpt_dirs') and _cmd_opts.ckpt_dirs:
-            _save_dir = _cmd_opts.ckpt_dirs[0]
-        else:
-            _save_dir = _sd_models.model_path
-        _save_path = _os.path.join(_save_dir, _fname)
-
-        _streamer.merge_and_save(
-            save_path=_save_path,
-            theta_0=theta_0, theta_1=theta_1, theta_2=theta_2,
-            calcmode=calcmode, mode=mode,
-            base_alpha=base_alpha, base_beta=base_beta,
-            weights_a=weights_a if useblocks else [],
-            weights_b=weights_b if useblocks and usebeta else [],
-            isxl=isxl, isflux=isflux,
-            useblocks=useblocks, usebeta=usebeta,
-            deep=deep, randomer=randomer, lucks=lucks,
-            deepprint=deepprint, esettings=esettings,
-            inex=inex, ex_blocks=ex_blocks, ex_elems=ex_elems,
-        )
-        # Build currentmodel name for return (same as end of smerge)
-        _wa_str = ",".join(str(x) for x in weights_a_excluded if x is not None)
-        _wb_str = ",".join(str(x) for x in weights_b_excluded if x is not None)
-        currentmodel = makemodelname(_wa_str, _wb_str, model_a, model_b, model_c,
-                                     base_alpha, base_beta, useblocks, mode, calcmode)
-        modelid = rwmergelog(currentmodel, mergedmodel)
-        return f"Merged model saved: {_save_path}", currentmodel, modelid, None, metadata
 
     ##### Stage 1/2
 

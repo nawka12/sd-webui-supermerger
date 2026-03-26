@@ -152,3 +152,18 @@ class TestDetectArch:
         assert not isxl
         assert isflux
         assert dtype == torch.bfloat16
+
+
+class TestDetectArchXlWeights:
+    def test_xl_flag_correct_for_xl_file(self, tmp_path):
+        """detect_arch returns isxl=True for a file with the SDXL conditioner key."""
+        from safetensors.torch import save_file as _sf
+        sd = {
+            "conditioner.embedders.1.model.transformer.resblocks.9.mlp.c_proj.weight": torch.zeros(4, 4),
+            "model.diffusion_model.input_blocks.0.weight": torch.zeros(4, 4),
+        }
+        path = str(tmp_path / "xl.safetensors")
+        _sf(sd, path)
+        isxl, isflux, _, _ = streamer.detect_arch(path)
+        assert isxl
+        assert not isflux
