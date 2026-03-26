@@ -22,10 +22,20 @@ Partially migrate supermerger's merge backend to use [sd-mecha](https://github.c
 
 ---
 
+## Behavioral Change Disclaimer
+
+`cosineA` and `cosineB` are migrated to sd-mecha's `add_cosine_a` / `add_cosine_b`. These use a **different algorithm** from supermerger's original:
+
+- **Original**: computes a global distribution of cosine similarities across all keys first (`precosine` pre-pass), then normalises each key's blend factor against that global min/max.
+- **sd-mecha**: computes cosine similarity per-tensor independently, with no global normalisation step.
+
+Outputs will differ from pre-migration merges. A UI disclaimer is shown next to the cosineA/cosineB calcmode entries (implementation detail, out of scope for this spec).
+
+---
+
 ## Non-Goals
 
-- Migrating `cosineA`, `cosineB` — sd-mecha's implementations use a different algorithm (no global distribution normalization), which would silently change user results. These stay as-is.
-- Migrating `trainDifference`, `extract` — complex 3-tensor algorithms, not reducible to simple subtract. These stay as-is.
+- Migrating `trainDifference`, `extract` — complex 3-tensor algorithms, not reducible to sd-mecha equivalents without significant custom work. These stay as-is.
 - Migrating `smoothAdd` — no sd-mecha equivalent. Stays as-is.
 - Migrating elemental merging, quantized model handling, fine/adjust, exclude/include logic — unchanged.
 - Adopting sd-mecha's model config / block naming system — supermerger's BLOCKID tables remain authoritative.
@@ -37,11 +47,11 @@ Partially migrate supermerger's merge backend to use [sd-mecha](https://github.c
 
 | calcmode | migrated to sd-mecha? | reason if excluded |
 |---|---|---|
-| `normal` (Weight / Add / Triple / Twice) | Yes | Direct tensor math |
-| `cosineA` | No | Different algorithm — would silently change user results |
-| `cosineB` | No | Different algorithm — would silently change user results |
-| `trainDifference` | No | Complex 3-tensor algorithm, not subtract |
-| `extract` | No | Complex 3-tensor algorithm, not subtract |
+| `normal` (Weight / Add / Triple / Twice) | Yes | |
+| `cosineA` | Yes | Algorithm changes — see disclaimer above |
+| `cosineB` | Yes | Algorithm changes — see disclaimer above |
+| `trainDifference` | No | Complex 3-tensor algorithm, no direct equivalent |
+| `extract` | No | Complex 3-tensor algorithm, no direct equivalent |
 | `smoothAdd` | No | No sd-mecha equivalent |
 | `slerp` *(new)* | Yes | |
 | `ties_sum` *(new)* | Yes | |
@@ -73,6 +83,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'sd_mecha'))
 import sd_mecha
 from sd_mecha.extensions.builtin.merge_methods import linear as _mm_linear
 from sd_mecha.extensions.builtin.merge_methods import ties as _mm_ties
+from sd_mecha.extensions.builtin.merge_methods import cosine as _mm_cosine
 ```
 
 ### Additional pip dependencies
@@ -107,7 +118,7 @@ def _call(fn, key, *tensors, **kwargs):
 
 Alpha/beta values must be passed as `torch.tensor(value, dtype=torch.float32)`.
 
-**Category B — bare Tensor** (`slerp`, `ties.dropout`, `ties.ties_sum`, `ties.ties_sum_with_dropout`): their `__wrapped__` functions accept `Tensor` arguments directly.
+**Category B — bare Tensor** (`slerp`, `cosine.add_cosine_a`, `cosine.add_cosine_b`, `ties.dropout`, `ties.ties_sum`, `ties.ties_sum_with_dropout`): their `__wrapped__` functions accept `Tensor` arguments directly. Implementer must verify `add_cosine_a`/`add_cosine_b` argument types against `cosine.py` source before calling.
 
 **Important — `probability` type for ties functions:** Although `ties_sum_with_dropout` and `ties_sum` annotate `probability` as `Parameter(Tensor)` in the decorator, the raw function bodies call `math.isclose(probability, 1.0)` directly. When calling `.__wrapped__` directly (bypassing the decorator), `probability` **must be passed as a plain Python `float`**, not `torch.tensor(...)`. Passing a Tensor raises `TypeError` from `math.isclose`.
 
@@ -164,6 +175,20 @@ mid = _call(_mm_linear.weighted_sum, key, t0, t1,
 return _call(_mm_linear.weighted_sum, key, mid, t2,
              alpha=torch.tensor(beta, dtype=torch.float32))
 ```
+
+*`cosineA`:*
+```python
+return _mm_cosine.add_cosine_a.__wrapped__(t0, t1,
+           alpha=torch.tensor(alpha, dtype=torch.float32))
+```
+
+*`cosineB`:*
+```python
+return _mm_cosine.add_cosine_b.__wrapped__(t0, t1,
+           alpha=torch.tensor(alpha, dtype=torch.float32))
+```
+
+Both are per-tensor operations with no pre-pass required. The `precosine()` call and `sim`/`sims` variables in `smerge()`'s preamble are removed entirely — they are only used by the old cosine code paths.
 
 *`slerp`:*
 ```python
@@ -225,7 +250,7 @@ return _call(_mm_linear.add_difference, key, t0, result_delta,
 
 ### `scripts/mergers/streamer.py` — Streaming Save Path
 
-Called by `smerge()` **after the preamble** (after architecture detection, dtype normalization, Stage 0 pre-subtraction for Add mode, cosine pre-computation) and before the Stage 1/2 key loop, when the user has requested a save.
+Called by `smerge()` **after the preamble** (after architecture detection, dtype normalization, Stage 0 pre-subtraction for Add mode) and before the Stage 1/2 key loop, when the user has requested a save. The `precosine()` pre-pass is no longer part of the preamble — cosineA/cosineB are now per-tensor operations handled inside `methods.dispatch()`.
 
 **Function signature:**
 
@@ -315,13 +340,16 @@ if calcmode in methods.IN_SCOPE_CALCMODES:
     else:
         theta_0[key] = result
 
-elif calcmode == "cosineA":
-    # existing code unchanged
-    ...
 elif calcmode == "trainDifference":
     # existing code unchanged
     ...
-# etc.
+elif calcmode == "extract":
+    # existing code unchanged
+    ...
+elif calcmode == "smoothAdd":
+    # existing code unchanged
+    ...
+# cosineA / cosineB no longer have separate branches — both are in IN_SCOPE_CALCMODES
 ```
 
 **Change 4: Route to `streamer` after preamble**
@@ -406,7 +434,8 @@ smerge() preamble
 - Merge two SD1.5 models, Weight mode, save to disk → file output matches in-memory result tensor-for-tensor.
 - MBW enabled on both paths → per-block alphas apply correctly.
 - Inpainting model merge → slice handling preserves correct channel count on both paths.
-- Out-of-scope calcmodes (`cosineA`, `trainDifference`, etc.) → bit-identical output to pre-migration.
+- Out-of-scope calcmodes (`trainDifference`, `extract`, `smoothAdd`) → bit-identical output to pre-migration.
+- `cosineA` / `cosineB` → valid loadable output; output is expected to differ from pre-migration (algorithm change, covered by disclaimer).
 - Each new calcmode (slerp, ties_sum, add_ties_with_dare, dropout) → no crash; output is a valid loadable model.
 - Triple/Twice mode + new calcmode at top of `smerge()` → error returned before model loading.
 - SDXL and Flux models on both paths.
