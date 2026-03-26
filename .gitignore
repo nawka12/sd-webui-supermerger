@@ -73,6 +73,9 @@ instance/
 # Sphinx documentation
 docs/_build/
 
+# Local planning docs (specs, implementation plans) — keep on disk, not in repo
+docs/superpowers/
+
 # PyBuilder
 target/
 
