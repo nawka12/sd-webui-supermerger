@@ -13,7 +13,7 @@ import numpy as np
 import torch
 from safetensors.torch import save_file as _sf_save_file
 
-from mergers import methods as _methods
+from scripts.mergers import methods as _methods
 
 
 def merge_and_save(
@@ -48,7 +48,7 @@ def merge_and_save(
     the smerge() preamble (Stage 0 pre-subtraction etc.).
     """
     # Lazy import to avoid circular dependency (mergers.mergers imports streamer at module level)
-    from mergers.mergers import resolve_alpha, CHCKPOINT_DICT_SKIP_ON_MERGE
+    from scripts.mergers.mergers import resolve_alpha, CHCKPOINT_DICT_SKIP_ON_MERGE
 
     if randomer is None:
         randomer = np.zeros(3000)

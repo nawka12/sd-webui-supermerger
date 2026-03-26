@@ -11,6 +11,7 @@ import os
 _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_repo_root, "scripts", "sd_mecha"))
 sys.path.insert(0, os.path.join(_repo_root, "scripts"))
+sys.path.insert(0, _repo_root)  # needed for "from scripts.mergers import ..." style imports
 
 def _make_mock_module(name, **attrs):
     mod = types.ModuleType(name)
