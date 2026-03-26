@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 from mergers import streamer, methods
+from safetensors.torch import save_file as _save_file
 
 
 def _make_state_dict(n_keys=4, shape=(4, 4), prefix="model.diffusion_model.input_blocks."):
@@ -106,3 +107,37 @@ class TestStreamerBasic:
         )
         result = load_file(out)
         assert "model.diffusion_model.text_encoder.weight" in result
+
+
+class TestDetectArch:
+    def _write(self, path, sd):
+        _save_file(sd, str(path))
+        return str(path)
+
+    def test_sd15_model(self, tmp_path):
+        p = self._write(tmp_path / "sd15.safetensors", {
+            "model.diffusion_model.input_blocks.0.weight": torch.zeros(4, 4),
+        })
+        isxl, isflux, keys, dtype = streamer.detect_arch(p)
+        assert not isxl
+        assert not isflux
+        assert "model.diffusion_model.input_blocks.0.weight" in keys
+        assert dtype == torch.float32
+
+    def test_xl_model(self, tmp_path):
+        p = self._write(tmp_path / "xl.safetensors", {
+            "conditioner.embedders.1.model.transformer.resblocks.9.mlp.c_proj.weight": torch.zeros(4, 4),
+            "model.diffusion_model.input_blocks.0.weight": torch.zeros(4, 4),
+        })
+        isxl, isflux, keys, dtype = streamer.detect_arch(p)
+        assert isxl
+        assert not isflux
+
+    def test_flux_model(self, tmp_path):
+        p = self._write(tmp_path / "flux.safetensors", {
+            "double_blocks.0.img_attn.norm.key_norm.scale": torch.zeros(4, dtype=torch.bfloat16),
+        })
+        isxl, isflux, keys, dtype = streamer.detect_arch(p)
+        assert not isxl
+        assert isflux
+        assert dtype == torch.bfloat16

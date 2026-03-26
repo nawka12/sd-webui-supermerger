@@ -12,9 +12,39 @@ normalization, Stage 0 pre-subtraction) when a save path is present.
 import numpy as np
 import torch
 from tqdm import tqdm
-from safetensors.torch import save_file as _sf_save_file
+from safetensors.torch import save_file as _sf_save_file, safe_open as _sf_open
+from contextlib import ExitStack as _ExitStack
 
 from scripts.mergers import methods as _methods
+
+# Keys that get the "model.diffusion_model." prefix applied by prefixer()
+_PREFIXFIX = ("double_blocks", "single_blocks", "time_in", "vector_in", "txt_in")
+_PREFIX_M = "model.diffusion_model."
+
+
+def detect_arch(path: str):
+    """
+    Read only the safetensors header; return (isxl, isflux, keys, dtype).
+
+    keys — list of raw file keys (before prefixer transformation).
+    dtype — torch dtype of the first tensor in the file.
+    Loads a single tensor only for dtype detection; no full model load.
+    """
+    with _sf_open(path, framework="pt", device="cpu") as sf:
+        raw_keys = list(sf.keys())
+        isxl = (
+            "conditioner.embedders.1.model.transformer.resblocks.9.mlp.c_proj.weight"
+            in raw_keys
+        )
+        isflux = any("double_block" in k for k in raw_keys)
+        dtype = None
+        for k in raw_keys:
+            try:
+                dtype = sf.get_tensor(k).dtype
+                break
+            except Exception:
+                continue
+    return isxl, isflux, raw_keys, dtype
 
 
 def merge_and_save(
