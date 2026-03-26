@@ -9,6 +9,7 @@ memory before the final save_file() write, plus working tensors per key).
 Called by smerge() when a save path is present, instead of the old dict-based
 merge path.
 """
+import gc
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -193,18 +194,20 @@ def merge_and_save(
                 output_tensors[key] = result.to(_orig_dtype)
 
         # Stage 2/2 — keys in B absent in A (text encoder etc.)
-        for raw_key in sf_b.keys():
+        for raw_key in tqdm(list(sf_b.keys()), desc="Stage 2/2"):
             internal_key = _apply_prefix(raw_key)
             if internal_key in CHCKPOINT_DICT_SKIP_ON_MERGE or isflux:
                 continue
             if "model" in internal_key and internal_key not in output_tensors:
                 output_tensors[internal_key] = sf_b.get_tensor(raw_key)
 
-    # Flux models: revert prefix so output matches file format Forge expects (bare keys)
+    # Flux models: revert prefix so output matches file format Forge expects (bare keys).
+    # Done in-place to avoid a temporary full copy of the dict (would spike RAM by 1× model size).
     if isflux:
-        output_tensors = {
-            k[len(_PREFIX_M):] if k.startswith(_PREFIX_M) else k: v
-            for k, v in output_tensors.items()
-        }
+        keys_to_rename = [k for k in output_tensors if k.startswith(_PREFIX_M)]
+        for k in keys_to_rename:
+            output_tensors[k[len(_PREFIX_M):]] = output_tensors.pop(k)
 
     _sf_save_file(output_tensors, save_path)
+    del output_tensors
+    gc.collect()
