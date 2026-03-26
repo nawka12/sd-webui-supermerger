@@ -92,6 +92,7 @@ def merge_and_save(
             t0 = theta_0[key]
             slice_only = False
 
+        _orig_dtype = theta_0[key].dtype
         result = _methods.dispatch(
             calcmode, mode, key,
             t0, theta_1[key],
@@ -101,10 +102,10 @@ def merge_and_save(
 
         if slice_only:
             out_tensor = theta_0[key].clone()
-            out_tensor[:, 0:4, :, :] = result
+            out_tensor[:, 0:4, :, :] = result.to(_orig_dtype)
             output_tensors[key] = out_tensor
         else:
-            output_tensors[key] = result
+            output_tensors[key] = result.to(_orig_dtype)
 
     # Stage 2/2 — copy keys from theta_1 absent in theta_0 (text encoder etc.)
     for key in theta_1.keys():

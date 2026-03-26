@@ -585,6 +585,7 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
                 slice_only = False
                 t0 = theta_0[key]
 
+            _orig_dtype = theta_0[key].dtype
             result = _merge_methods.dispatch(
                 calcmode, mode, key,
                 t0, theta_1[key],
@@ -592,9 +593,9 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
                 current_alpha, current_beta,
             )
             if slice_only:
-                theta_0[key][:, 0:4, :, :] = result
+                theta_0[key][:, 0:4, :, :] = result.to(_orig_dtype)
             else:
-                theta_0[key] = result
+                theta_0[key] = result.to(_orig_dtype)
             del result, t0
 
         elif calcmode == "trainDifference":
