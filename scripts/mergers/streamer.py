@@ -3,8 +3,8 @@
 True streaming merge: open model files lazily with safe_open, read one tensor
 per key, write result to save_path via safetensors save_file().
 
-Peak RAM ≈ 1× model size (only one tensor from each file in memory at a time,
-plus the growing output dict which is written once at the end).
+Peak RAM ≈ 2× model size (output_tensors accumulates all merged tensors in
+memory before the final save_file() write, plus working tensors per key).
 
 Called by smerge() when a save path is present, instead of the old dict-based
 merge path.
@@ -75,7 +75,8 @@ def merge_and_save(
 ):
     """
     True streaming merge: open model files lazily with safe_open, read
-    one tensor per key, write result to save_path. Peak RAM ≈ 1× model size.
+    one tensor per key, write result to save_path. Peak RAM ≈ 2× model size.
+    Output tensors accumulate in a dict before the final `save_file()` write.
 
     path_a   — safetensors file for Model A (base)
     path_b   — safetensors file for Model B
@@ -198,5 +199,12 @@ def merge_and_save(
                 continue
             if "model" in internal_key and internal_key not in output_tensors:
                 output_tensors[internal_key] = sf_b.get_tensor(raw_key)
+
+    # Flux models: revert prefix so output matches file format Forge expects (bare keys)
+    if isflux:
+        output_tensors = {
+            k[len(_PREFIX_M):] if k.startswith(_PREFIX_M) else k: v
+            for k, v in output_tensors.items()
+        }
 
     _sf_save_file(output_tensors, save_path)

@@ -431,7 +431,7 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
                 (not _needs_c or (_path_c is not None and _path_c.endswith('.safetensors')))
             )
 
-            if _path_a and _all_st:
+            if _all_st:
                 # Detect architecture from model B header (no full load)
                 isxl, isflux, _, _ = _streamer.detect_arch(_path_b)
 

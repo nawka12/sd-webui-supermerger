@@ -95,7 +95,7 @@ class TestMergeAndSave:
                                torch.ones(4, 4), atol=1e-5)
 
     def test_flux_bare_keys_get_prefix(self, tmp_path):
-        """Flux models have bare keys in file; output should have prefixed internal keys."""
+        """Flux models have bare keys in file; output should store bare keys (prefix reverted)."""
         sd_a = {"double_blocks.0.weight": torch.zeros(4, 4)}
         sd_b = {"double_blocks.0.weight": torch.ones(4, 4) * 2.0}
         pa = _write_st(tmp_path / "a.safetensors", sd_a)
@@ -104,8 +104,8 @@ class TestMergeAndSave:
                          isxl=False, isflux=True, alpha=0.5)
         result = _load_file(out)
         assert len(result) == 1
-        # Flux bare keys get prefixed in output
-        assert "model.diffusion_model.double_blocks.0.weight" in result
+        # Flux prefix reverted before save: output has bare keys
+        assert "double_blocks.0.weight" in result
 
     def test_dtype_preserved_float16(self, tmp_path):
         """Output tensor should preserve input dtype (float16), not be promoted to float32."""
