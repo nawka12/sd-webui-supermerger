@@ -1,0 +1,3 @@
+[submodule "scripts/sd_mecha"]
+	path = scripts/sd_mecha
+	url = https://github.com/ljleb/sd-mecha
