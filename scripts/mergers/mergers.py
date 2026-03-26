@@ -35,6 +35,7 @@ from multiprocessing import cpu_count
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from scripts.mergers.bcolors import bcolors
+from scripts.mergers import methods as _merge_methods
 import collections
 
 PREFIXFIX = ("double_blocks","single_blocks","time_in","vector_in","txt_in")
@@ -373,9 +374,12 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
         deep = deep.split(",")
 
     #format check
-    if model_a =="" or model_b =="" or ((not MODES[0] in mode) and model_c=="") : 
+    if model_a =="" or model_b =="" or ((not MODES[0] in mode) and model_c=="") :
         return "ERROR: Necessary model is not selected",*NON4
-    
+
+    if calcmode in _merge_methods.TWO_MODEL_ONLY and (MODES[2] in mode or MODES[3] in mode):
+        return f"ERROR: calcmode '{calcmode}' only supports Weight or Add mode.", *NON4
+
     #exclude/include
     ex_elems = ex_elems.split(",")
 
@@ -475,11 +479,7 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
     if theta_2 is not None: 
         to_qdtype(theta_0, theta_2, qdtypes[0], qdtypes[2], device, "Model A", "Model C")
 
-    ##### Stage 0/2 in Cosine
-    if "cosine" in calcmode:
-        sim, sims = precosine("A" in calcmode,theta_0,theta_1)
-
-    ##### Stage 1/2   
+    ##### Stage 1/2
 
     alpha = base_alpha
     beta = base_beta
@@ -519,68 +519,27 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
         #keyratio.append([key,current_alpha, current_beta,list(theta_0[key].shape),torch.sum(theta_0[key]).item(), torch.mean(theta_0[key]).item(), torch.max(theta_0[key]).item(),  torch.min(theta_0[key]).item()])
         if debug:print(current_alpha,current_beta)
 
-        if calcmode == "normal":
-            if a != b and a[0:1] + a[2:] == b[0:1] + b[2:]:
-                # Merge only the vectors the models have in common.  Otherwise we get an error due to dimension mismatch.
-                theta_0_a = theta_0[key][:, 0:4, :, :]
+        if calcmode in _merge_methods.IN_SCOPE_CALCMODES:
+            a_shape = list(theta_0[key].shape)
+            b_shape = list(theta_1[key].shape)
+            if a_shape != b_shape and a_shape[0:1] + a_shape[2:] == b_shape[0:1] + b_shape[2:]:
+                slice_only = True
+                t0 = theta_0[key][:, 0:4, :, :]
             else:
-                theta_0_a = theta_0[key]
+                slice_only = False
+                t0 = theta_0[key]
 
-            if MODES[1] in mode:#Add
-                caster(f"{num}, {block}, {model_a}+{current_alpha}+*({model_b}-{model_c}),{key}",hear)
-                if uselerp:
-                    if use32:
-                        theta_0_a = torch.lerp(theta_0_a,theta_0_a.to(torch.float32) + current_alpha * theta_1[key].to(torch.float32),1.0).to(theta_0_a.dtype)
-                    else:
-                        theta_0_a = torch.lerp(theta_0_a,theta_0_a + current_alpha * theta_1[key],1.0)
-                else:
-                    if use32:
-                        theta_0_a = (theta_0_a.to(torch.float32) + current_alpha * theta_1[key].to(torch.float32)).to(theta_0_a.dtype)
-                    else:
-                        theta_0_a = (theta_0_a + current_alpha * theta_1[key])
-
-            elif MODES[2] in mode:#Triple
-                caster(f"{num}, {block}, {model_a}+{1-current_alpha-current_beta}+{model_b}*{current_alpha}+ {model_c}*{current_beta}",hear)
-                #
-                if uselerp and current_alpha + current_beta != 0:
-                    if use32:
-                        theta_0_a =lerp(theta_0_a.to(torch.float32),lerp(theta_1[key].to(torch.float32),theta_2[key].to(torch.float32),current_beta/(current_alpha + current_beta)),current_alpha + current_beta).to(theta_0_a.dtype)
-                    else:
-                        theta_0_a =lerp(theta_0_a,lerp(theta_1[key],theta_2[key],current_beta/(current_alpha + current_beta)),current_alpha + current_beta)
-                else:
-                    theta_0_a = (1 - current_alpha-current_beta) * theta_0_a + current_alpha * theta_1[key]+current_beta * theta_2[key] 
-
-            elif MODES[3] in mode:#Twice
-                caster(f"{num}, {block}, {key},{model_a} +  {1-current_alpha} + {model_b}*{current_alpha}",hear)
-                caster(f"{num}, {block}, {key}({model_a}+{model_b}) +{1-current_beta}+{model_c}*{current_beta}",hear)
-                if uselerp:
-                    theta_0_a = torch.lerp(torch.lerp(theta_0_a.to(torch.float32), theta_1[key].to(torch.float32), current_alpha), theta_2[key].to(torch.float32), current_beta).to(theta_0_a.dtype)
-                else:
-                    theta_0_a = (1 - current_alpha) * theta_0_a + current_alpha * theta_1[key]
-                    theta_0_a = (1 - current_beta) * theta_0_a + current_beta * theta_2[key]
-
-            else:#Weight
-                if current_alpha == 1:
-                    caster(f"{num}, {block}, {key} alpha = 1,{model_a}={model_b}",hear)
-                    theta_0_a = theta_1[key]
-                elif current_alpha !=0:
-                    caster(f"{num}, {block}, {key}, {model_a}*{1-current_alpha}+{model_b}*{current_alpha}",hear)
-                    if uselerp:
-                        theta_0_a = torch.lerp(theta_0_a.to(torch.float32), theta_1[key].to(torch.float32), current_alpha).to(theta_0_a.dtype)
-                    else:
-                        theta_0_a = (1 - current_alpha) * theta_0_a + current_alpha * theta_1[key]
-
-            if a != b and a[0:1] + a[2:] == b[0:1] + b[2:]:
-                theta_0[key][:, 0:4, :, :] = theta_0_a
+            result = _merge_methods.dispatch(
+                calcmode, mode, key,
+                t0, theta_1[key],
+                theta_2[key] if theta_2 is not None else None,
+                current_alpha, current_beta,
+            )
+            if slice_only:
+                theta_0[key][:, 0:4, :, :] = result
             else:
-                theta_0[key] = theta_0_a
-
-            theta_0_a = a = b = None
-            del theta_0_a, a, b
-
-        elif "cosine" in calcmode:
-            if "first_stage_model" in key: continue
-            cosine(calcmode,key,sim,sims,current_alpha,theta_0,theta_1,num,block,uselerp)
+                theta_0[key] = result
+            del result, t0
 
         elif calcmode == "trainDifference":
             if torch.allclose(theta_1[key].float(), theta_2[key].float().to(device=theta_1[key].device), rtol=0, atol=0):
