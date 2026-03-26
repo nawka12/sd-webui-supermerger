@@ -149,6 +149,10 @@ def smergegen(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,m
             if _saved_info is None:
                 _saved_info = checkpoint_info  # fallback: reload model A info
             model_loader(_saved_info, None, metadata, currentmodel)
+            # After disk-load model_loader: old model refs were cleared by model_data.__init__()
+            # inside model_loader; run gc + CUDA flush to free old model VRAM now.
+            gc.collect()
+            devices.torch_gc()
     else:
         result = savemodel(theta_0,currentmodel,custom_name,save_sets,metadata) if save else "Merged model loaded:"+currentmodel
         model_loader(checkpoint_info, theta_0, metadata, currentmodel)
