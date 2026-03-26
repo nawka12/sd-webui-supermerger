@@ -39,7 +39,7 @@ else:
 path_root = basedir()
 xyzpath = os.path.join(path_root,"xyzpresets.json")
 
-CALCMODES  = ["normal", "cosineA", "cosineB","trainDifference","smoothAdd","smoothAdd MT","extract","tensor","tensor2","self","plus random"]
+CALCMODES  = ["normal", "cosineA", "cosineB","trainDifference","smoothAdd","smoothAdd MT","extract","tensor","tensor2","self","plus random","slerp","ties_sum","add_ties_with_dare","dropout"]
 
 try:
     from backend.utils import load_torch_file
