@@ -428,7 +428,7 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
 
             _all_st = (
                 _path_a and _path_a.endswith('.safetensors') and
-                (_path_c is None or _path_c.endswith('.safetensors'))
+                (not _needs_c or (_path_c is not None and _path_c.endswith('.safetensors')))
             )
 
             if _path_a and _all_st:
@@ -451,7 +451,6 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
                         _w_b = _w_b + [0]
 
                 # Build save path (same logic as old intercept)
-                import os as _os
                 _pre = ".fp16" if "fp16" in save_sets else ""
                 _ext = ".safetensors" if "safetensors" in save_sets else ".ckpt"
                 _fname = custom_name if custom_name and custom_name != "" else ""
@@ -470,7 +469,7 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
                     _save_dir = cmd_opts.ckpt_dirs[0]
                 else:
                     _save_dir = sd_models.model_path
-                _save_path = _os.path.join(_save_dir, _fname)
+                _save_path = os.path.join(_save_dir, _fname)
 
                 _streamer.merge_and_save(
                     path_a=_path_a,
