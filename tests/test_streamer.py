@@ -132,6 +132,8 @@ class TestDetectArch:
         isxl, isflux, keys, dtype = streamer.detect_arch(p)
         assert isxl
         assert not isflux
+        assert "conditioner.embedders.1.model.transformer.resblocks.9.mlp.c_proj.weight" in keys
+        assert dtype == torch.float32
 
     def test_flux_model(self, tmp_path):
         p = self._write(tmp_path / "flux.safetensors", {

@@ -13,13 +13,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from safetensors.torch import save_file as _sf_save_file, safe_open as _sf_open
-from contextlib import ExitStack as _ExitStack
 
 from scripts.mergers import methods as _methods
-
-# Keys that get the "model.diffusion_model." prefix applied by prefixer()
-_PREFIXFIX = ("double_blocks", "single_blocks", "time_in", "vector_in", "txt_in")
-_PREFIX_M = "model.diffusion_model."
 
 
 def detect_arch(path: str):
