@@ -36,6 +36,7 @@ from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from scripts.mergers.bcolors import bcolors
 from scripts.mergers import methods as _merge_methods
+from scripts.mergers import streamer as _streamer
 import collections
 
 PREFIXFIX = ("double_blocks","single_blocks","time_in","vector_in","txt_in")
@@ -135,10 +136,12 @@ def smergegen(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,m
     checkpoint_info = sd_models.get_closet_checkpoint_match(model_a)
 
     save = True if SAVEMODES[0] in save_sets else False
-
-    result = savemodel(theta_0,currentmodel,custom_name,save_sets,metadata) if save else "Merged model loaded:"+currentmodel
-
-    model_loader(checkpoint_info, theta_0, metadata, currentmodel)
+    if theta_0 is None:
+        # streaming save already completed inside smerge(); result string was returned directly
+        pass  # result is already set from smerge() return value
+    else:
+        result = savemodel(theta_0,currentmodel,custom_name,save_sets,metadata) if save else "Merged model loaded:"+currentmodel
+        model_loader(checkpoint_info, theta_0, metadata, currentmodel)
 
     cachedealer(False)
 
@@ -481,8 +484,56 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
         print(f"Precision of model B (or B-C) is changing to {qdtypes[0]}...")
         to_qdtype(theta_0, theta_1, qdtypes[0], qdtypes[1], device, "Model A", "Model B")
 
-    if theta_2 is not None: 
+    if theta_2 is not None:
         to_qdtype(theta_0, theta_2, qdtypes[0], qdtypes[2], device, "Model A", "Model C")
+
+    # ---- Streaming save path ----
+    _do_save = SAVEMODES[0] in save_sets or SAVEMODES[1] in save_sets
+    if _do_save and calcmode in _merge_methods.IN_SCOPE_CALCMODES:
+        # Build output path using the same logic as savemodel() in model_util.py
+        import os as _os
+        from modules import sd_models as _sd_models
+        from modules.shared import cmd_opts as _cmd_opts
+        _pre = ".fp16" if "fp16" in save_sets else ""
+        _ext = ".safetensors" if "safetensors" in save_sets else ".ckpt"
+        _fname = custom_name if custom_name and custom_name != "" else ""
+        if not _fname:
+            _mname = makemodelname(
+                ",".join(str(x) for x in weights_a) if useblocks else str(base_alpha),
+                ",".join(str(x) for x in weights_b) if useblocks else str(base_beta),
+                model_a, model_b, model_c, base_alpha, base_beta,
+                useblocks, mode, calcmode,
+            )
+            _fname = _mname.replace(" ", "").replace(",", "_").replace("(","_").replace(")","_")
+        _fname = _fname if _ext in _fname else _fname + _pre + _ext
+        if hasattr(_cmd_opts, 'ckpt_dir') and _cmd_opts.ckpt_dir:
+            _save_dir = _cmd_opts.ckpt_dir
+        elif hasattr(_cmd_opts, 'ckpt_dirs') and _cmd_opts.ckpt_dirs:
+            _save_dir = _cmd_opts.ckpt_dirs[0]
+        else:
+            _save_dir = _sd_models.model_path
+        _save_path = _os.path.join(_save_dir, _fname)
+
+        _streamer.merge_and_save(
+            save_path=_save_path,
+            theta_0=theta_0, theta_1=theta_1, theta_2=theta_2,
+            calcmode=calcmode, mode=mode,
+            base_alpha=base_alpha, base_beta=base_beta,
+            weights_a=weights_a if useblocks else [],
+            weights_b=weights_b if useblocks and usebeta else [],
+            isxl=isxl, isflux=isflux,
+            useblocks=useblocks, usebeta=usebeta,
+            deep=deep, randomer=randomer, lucks=lucks,
+            deepprint=deepprint, esettings=esettings,
+            inex=inex, ex_blocks=ex_blocks, ex_elems=ex_elems,
+        )
+        # Build currentmodel name for return (same as end of smerge)
+        _wa_str = ",".join(str(x) for x in weights_a_excluded if x is not None)
+        _wb_str = ",".join(str(x) for x in weights_b_excluded if x is not None)
+        currentmodel = makemodelname(_wa_str, _wb_str, model_a, model_b, model_c,
+                                     base_alpha, base_beta, useblocks, mode, calcmode)
+        modelid = rwmergelog(currentmodel, mergedmodel)
+        return f"Merged model saved: {_save_path}", currentmodel, modelid, None, metadata
 
     ##### Stage 1/2
 

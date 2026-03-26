@@ -13,14 +13,6 @@ import numpy as np
 import torch
 from safetensors.torch import save_file as _sf_save_file
 
-# Import resolve_alpha and the skip-keys constant from mergers.mergers.
-# Use 'mergers.mergers' (without 'scripts.' prefix) — this works in both:
-#   - WebUI production: 'scripts/' is on sys.path
-#   - Tests: conftest.py adds 'scripts/' to sys.path
-from mergers.mergers import (
-    resolve_alpha,
-    CHCKPOINT_DICT_SKIP_ON_MERGE,
-)
 from mergers import methods as _methods
 
 
@@ -55,6 +47,9 @@ def merge_and_save(
     theta_0, theta_1, theta_2 must already be fully loaded and through
     the smerge() preamble (Stage 0 pre-subtraction etc.).
     """
+    # Lazy import to avoid circular dependency (mergers.mergers imports streamer at module level)
+    from mergers.mergers import resolve_alpha, CHCKPOINT_DICT_SKIP_ON_MERGE
+
     if randomer is None:
         randomer = np.zeros(3000)
 
