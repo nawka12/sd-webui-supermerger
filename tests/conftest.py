@@ -50,6 +50,7 @@ _modules_stub.processing.create_infotext = lambda *a, **kw: ""
 _modules_stub.processing.Processed = object
 # Attributes needed from modules.sd_models
 _modules_stub.sd_models.unload_model_weights = lambda *a, **kw: None
+_modules_stub.sd_models.get_closet_checkpoint_match = lambda *a, **kw: None
 # Attributes needed from modules.shared
 _modules_stub.shared.opts = object()
 _modules_stub.shared.cmd_opts = object()

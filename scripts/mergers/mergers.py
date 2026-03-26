@@ -214,6 +214,75 @@ RANDMAP = [0,50,100] #alpha,beta,elements
 
 statistics = {"sum":{},"mean":{},"max":{},"min":{}}
     
+def resolve_alpha(key, isxl, isflux, useblocks, usebeta,
+                  base_alpha, base_beta, weights_a, weights_b,
+                  deep, randomer, num, lucks, deepprint, esettings,
+                  inex, ex_blocks, ex_elems,
+                  weights_a_excluded, weights_b_excluded):
+    """
+    Resolve per-key alpha and beta from block assignment and MBW weights.
+    Mutates weights_a_excluded / weights_b_excluded in place for logging.
+    Returns (current_alpha, current_beta, skip).
+    """
+    weight_index = -1
+    current_alpha = base_alpha
+    current_beta = base_beta
+
+    block, blocks26 = blockfromkey(key, isxl, isflux)
+
+    skip = (inex != "Off"
+            and (ex_blocks or (ex_elems != [""]))
+            and excluder(block, blocks26, inex, ex_blocks, ex_elems, key))
+
+    if isflux and blocks26 in BLOCKIDFLUX:
+        weight_index = BLOCKIDFLUX.index(blocks26)
+    elif isxl and blocks26 in BLOCKIDXLL:
+        weight_index = BLOCKIDXLL.index(blocks26)
+    elif blocks26 in BLOCKID:
+        weight_index = BLOCKID.index(blocks26)
+    else:
+        return current_alpha, current_beta, True  # key not in any block → skip
+
+    weight_index_xl = BLOCKIDXLLL.index(block)
+
+    if useblocks:
+        if weight_index > 0:
+            if skip: weights_a_excluded[weight_index] = 0
+            current_alpha = weights_a[weight_index - 1]
+            if len(weights_a) == 109:
+                if skip: weights_a_excluded[weight_index_xl] = 0
+                current_alpha = weights_a[weight_index_xl - 1]
+
+            if usebeta:
+                if skip: weights_b_excluded[weight_index] = 0
+                current_beta = weights_b[weight_index - 1]
+                if len(weights_b) == 109:
+                    if skip: weights_b_excluded[weight_index_xl] = 0
+                    current_beta = weights_b[weight_index_xl - 1]  # BUG FIX: was current_alpha
+
+        if weight_index == 0:
+            if len(weights_a) == 109 and weight_index_xl == 1:
+                if skip: weights_a_excluded[weight_index_xl] = 0
+                current_alpha = weights_a[weight_index_xl - 1]
+            if len(weights_b) == 109 and usebeta and weight_index_xl == 1:
+                if skip: weights_b_excluded[weight_index_xl] = 0
+                current_beta = weights_b[weight_index_xl - 1]  # BUG FIX: was current_alpha
+
+            if skip: weights_a_excluded[0] = 0
+            if skip: weights_b_excluded[0] = 0
+
+    if skip:
+        return current_alpha, current_beta, True
+
+    if len(deep) > 0:
+        current_alpha = elementals(
+            key, weight_index, weight_index_xl, deep, randomer, num,
+            lucks, deepprint, current_alpha,
+            len(weights_a) == 109 or "use extended XL" in esettings)
+
+    return current_alpha, current_beta, False
+
+
 ################################################
 ##### Main Merging Code
 
@@ -429,59 +498,22 @@ def smerge(weights_a,weights_b,model_a,model_b,model_c,base_alpha,base_beta,mode
         if theta_1[key].device.type != device:theta_1[key] = theta_1[key].to(device)
         if theta_2 is not None and theta_2[key].device.type != device:theta_2[key] = theta_2[key].to(device)
 
-        weight_index = -1
-        current_alpha = alpha
-        current_beta = beta
-
         a = list(theta_0[key].shape)
         b = list(theta_1[key].shape)
 
         assert_inpaint(a, b, key)
 
-        block,blocks26 = blockfromkey(key,isxl,isflux)
-        
-        #if block == "Not Merge": continue
-        skip = inex != "Off" and (ex_blocks or (ex_elems != [""])) and excluder(block,blocks26,inex,ex_blocks,ex_elems,key)
-        if isflux and blocks26 in BLOCKIDFLUX:
-            weight_index = BLOCKIDFLUX.index(blocks26)
-        elif isxl and blocks26 in BLOCKIDXLL:
-            weight_index = BLOCKIDXLL.index(blocks26)
-        elif blocks26 in BLOCKID:
-            weight_index = BLOCKID.index(blocks26)
-        else:
+        block, blocks26 = blockfromkey(key, isxl, isflux)
+
+        current_alpha, current_beta, skip = resolve_alpha(
+            key, isxl, isflux, useblocks, usebeta,
+            alpha, beta, weights_a, weights_b,
+            deep, randomer, num, lucks, deepprint, esettings,
+            inex, ex_blocks, ex_elems,
+            weights_a_excluded, weights_b_excluded,
+        )
+        if skip:
             continue
-        
-        weight_index_xl = BLOCKIDXLLL.index(block)
-
-        if useblocks:
-            if weight_index > 0:
-                if skip:weights_a_excluded[weight_index] = 0
-                current_alpha = weights_a[weight_index - 1] 
-                if len(weights_a) == 109:
-                    if skip:weights_a_excluded[weight_index_xl] = 0
-                    current_alpha = weights_a[weight_index_xl - 1] 
-                
-                if usebeta:
-                    if skip:weights_b_excluded[weight_index] = 0
-                    current_beta = weights_b[weight_index - 1]
-                    if len(weights_b) == 109:
-                        if skip:weights_b_excluded[weight_index_xl] = 0
-                        current_alpha = weights_b[weight_index_xl - 1]
-            if weight_index == 0:
-                if len(weights_a) == 109 and weight_index_xl == 1:
-                    if skip:weights_a_excluded[weight_index_xl] = 0
-                    current_alpha = weights_a[weight_index_xl - 1] 
-                if len(weights_b) == 109 and usebeta and weight_index_xl == 1:
-                    if skip:weights_b_excluded[weight_index_xl] = 0
-                    current_alpha = weights_b[weight_index_xl - 1]
-                
-                if skip:weights_a_excluded[0] = 0
-                if skip:weights_b_excluded[0] = 0
-        
-        if skip:continue
-
-        if len(deep) > 0:
-            current_alpha = elementals(key,weight_index,weight_index_xl,deep,randomer,num,lucks,deepprint,current_alpha,len(weights_a) == 109 or "use extended XL" in esettings)
 
         keyratio.append([key,current_alpha, current_beta])
         #keyratio.append([key,current_alpha, current_beta,list(theta_0[key].shape),torch.sum(theta_0[key]).item(), torch.mean(theta_0[key]).item(), torch.max(theta_0[key]).item(),  torch.min(theta_0[key]).item()])
