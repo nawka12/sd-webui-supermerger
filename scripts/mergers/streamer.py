@@ -11,6 +11,7 @@ normalization, Stage 0 pre-subtraction) when a save path is present.
 """
 import numpy as np
 import torch
+from tqdm import tqdm
 from safetensors.torch import save_file as _sf_save_file
 
 from scripts.mergers import methods as _methods
@@ -59,7 +60,7 @@ def merge_and_save(
     output_tensors = {}
 
     # Stage 1/2 — merge keys present in theta_0
-    for num, key in enumerate(theta_0.keys()):
+    for num, key in enumerate(tqdm(theta_0.keys(), desc="Stage 1/2")):
         if isflux:
             if key not in theta_1:
                 continue
