@@ -445,16 +445,15 @@ def lmerge(loranames,loraratioss,settings,filename,dim,save_precision,calc_preci
         dim = int(dim) if dim != "no" and dim != "auto" else 0
 
         if merge:
-            if "LyCORIS" in ld:
-                if len(ld) !=1:
-                    return "multiple merge of LyCORIS is not supported"
+            if "LyCORIS" in ld and len(ld) == 1 and dim == 0 and not auto:
+                # Single LoHa, no rank change → block-weight scaling only
                 sd = lycomerge(ln[0], lr[0], calc_precision, device)
             elif dim > 0:
                 print("change demension to ", dim)
-                sd = merge_lora_models_dim(ln, lr, dim,settings,device,calc_precision)
+                sd = merge_lora_models_dim(ln, lr, dim, settings, device, calc_precision)
             elif auto and ld.count(ld[0]) != len(ld):
-                print("change demension to ",dmax)
-                sd = merge_lora_models_dim(ln, lr, dmax,settings,device,calc_precision)
+                print("change demension to ", dmax)
+                sd = merge_lora_models_dim(ln, lr, dmax, settings, device, calc_precision)
             else:
                 sd = merge_lora_models(ln, lr, settings, False, calc_precision, device)
 
@@ -741,16 +740,24 @@ def lycomerge(filename, ratios, calc_precision, device):
 
         key, lora_key = fullkey.split(".", 1)
 
+        if "lora_unet" in key:
+            key = key.replace("lora_unet", "diffusion_model")
+
         for i,block in enumerate(LBLCOKS26):
             if block in key:
                 ratio = ratios[i]
                 picked = True
         if not picked: keys_failed_to_match.append(key)
 
-        sd[lkey] = weight * math.sqrt(abs(float(ratio)))
-
-        if "down" in lkey and ratio < 0:
-          sd[key] = sd[key] * -1
+        if "hada_" in lkey:
+            scale = abs(float(ratio)) ** 0.25
+            if "hada_w1_a" in lkey and ratio < 0:
+                scale = -scale
+        else:
+            scale = math.sqrt(abs(float(ratio)))
+            if "down" in lkey and ratio < 0:
+                scale = -scale
+        sd[lkey] = weight * scale
         
     if len(keys_failed_to_match) > 0:
       print(keys_failed_to_match)
