@@ -95,3 +95,78 @@ class TestComposeLora:
         wb = down     # (2,3)
         expected = torch.einsum("i j, i p, j r -> p r", mid, wa, wb)
         assert torch.allclose(delta, expected, atol=1e-5)
+
+
+class TestComposeLoKr:
+    def test_plain_w1_w2(self):
+        w1 = torch.eye(2)
+        w2 = torch.eye(3)
+        sd = {
+            "mod.lokr_w1": w1,
+            "mod.lokr_w2": w2,
+        }
+        delta = compose_delta(sd, "mod")
+        assert torch.allclose(delta, torch.kron(w1, w2))
+
+    def test_factorized_w1(self):
+        w1a = torch.randn(4, 2)
+        w1b = torch.randn(2, 4)
+        w2 = torch.eye(2)
+        sd = {
+            "mod.lokr_w1_a": w1a,
+            "mod.lokr_w1_b": w1b,
+            "mod.lokr_w2": w2,
+        }
+        delta = compose_delta(sd, "mod")
+        assert torch.allclose(delta, torch.kron(w1a @ w1b, w2), atol=1e-5)
+
+    def test_factorized_w2(self):
+        w1 = torch.eye(2)
+        w2a = torch.randn(4, 2)
+        w2b = torch.randn(2, 4)
+        sd = {
+            "mod.lokr_w1": w1,
+            "mod.lokr_w2_a": w2a,
+            "mod.lokr_w2_b": w2b,
+        }
+        delta = compose_delta(sd, "mod")
+        assert torch.allclose(delta, torch.kron(w1, w2a @ w2b), atol=1e-5)
+
+    def test_alpha_scaling_with_factorized_w1(self):
+        w1a = torch.eye(2)
+        w1b = torch.eye(2)    # lora_dim = w1b.shape[0] = 2
+        w2 = torch.eye(2)
+        sd = {
+            "mod.lokr_w1_a": w1a,
+            "mod.lokr_w1_b": w1b,
+            "mod.lokr_w2": w2,
+            "mod.alpha": torch.tensor(1.0),  # scale = 1/2 = 0.5
+        }
+        delta = compose_delta(sd, "mod")
+        expected = torch.kron(w1a @ w1b, w2) * 0.5
+        assert torch.allclose(delta, expected, atol=1e-5)
+
+    def test_nonfinite_alpha_uses_scale_1(self):
+        w1a = torch.eye(2)
+        w1b = torch.eye(2)
+        w2 = torch.eye(2)
+        sd = {
+            "mod.lokr_w1_a": w1a,
+            "mod.lokr_w1_b": w1b,
+            "mod.lokr_w2": w2,
+            "mod.alpha": torch.tensor(float("inf")),
+        }
+        delta = compose_delta(sd, "mod")
+        # inf alpha → scale=1.0
+        assert torch.allclose(delta, torch.kron(w1a @ w1b, w2), atol=1e-5)
+
+    def test_plain_w1_no_alpha_scale_1(self):
+        w1 = torch.full((2, 2), 2.0)
+        w2 = torch.full((2, 2), 3.0)
+        sd = {
+            "mod.lokr_w1": w1,
+            "mod.lokr_w2": w2,
+        }
+        delta = compose_delta(sd, "mod")
+        # no lora_dim (no factorized), scale=1.0
+        assert torch.allclose(delta, torch.kron(w1, w2))
