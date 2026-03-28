@@ -1,7 +1,27 @@
 import launch
 import importlib
+import os
+import subprocess
 from packaging.version import Version
 from packaging.requirements import Requirement
+
+# Initialize sd_mecha submodule if not already done
+_ext_dir = os.path.dirname(os.path.abspath(__file__))
+_sd_mecha_dir = os.path.join(_ext_dir, "scripts", "sd_mecha")
+if not os.path.isfile(os.path.join(_sd_mecha_dir, "setup.py")) and \
+   not os.path.isfile(os.path.join(_sd_mecha_dir, "pyproject.toml")):
+    print("sd-webui-supermerger: initializing sd_mecha submodule...")
+    try:
+        subprocess.run(
+            ["git", "submodule", "update", "--init", "--recursive"],
+            cwd=_ext_dir,
+            check=True,
+            capture_output=True,
+        )
+        print("sd-webui-supermerger: sd_mecha submodule initialized.")
+    except subprocess.CalledProcessError as e:
+        print(f"sd-webui-supermerger: failed to initialize sd_mecha submodule: {e.stderr.decode().strip()}")
+        print("  Run `git submodule update --init --recursive` in the extension directory manually.")
 
 def is_installed(pip_package):
     """
