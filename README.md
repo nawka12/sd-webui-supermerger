@@ -29,6 +29,15 @@ This extension significantly improves the efficiency of model merging by elimina
 - [Elemental Merge](elemental_en.md)
 
 # Recent Update
+2026.03.28
+- **LoKr and LoHa now supported in Merge LoRAs** — `merge_lora_models_dim` now handles LoKr (Kronecker product) and LoHa (Hadamard product) inputs alongside standard LoRA/LoCon. Each algorithm is composed correctly before the weighted sum and SVD re-factorization, so the output is always standard LoRA format.
+- **Multi-LoHa merge restriction lifted** — Previously, merging more than one LyCORIS (LoHa) file together returned "multiple merge of LyCORIS is not supported". Multiple LoHa files now merge correctly through `merge_lora_models_dim`.
+- **LoHa block-weight scaling fixed** — The `Apply Block Weight (single)` path (`lycomerge`) was applying `√ratio` per tensor. LoHa reconstructs its weight as `(w1a⊗w1b)·(w2a⊗w2b)`, a product of four tensors, so the correct per-tensor scale is `ratio^(1/4)`. Negative ratios are now handled correctly by negating `hada_w1a` only.
+
+2026.03.26
+- **True streaming merge** — When saving to a file, the merge is now performed key-by-key via `safe_open` instead of loading the full model into RAM before merging. Peak RAM is approximately 2× model size rather than 3–4×. Flux models (bare keys) are handled correctly in streaming mode.
+- **New calc modes** — `slerp`, `ties_sum`, `add_ties_with_dare`, and `dropout` added to the calcmode selector.
+
 2026.02.28
 - **Fix Clear Cache crash on Forge Neo** — clicking "Clear Cache" before running any merge raised `AttributeError: 'str' object has no attribute 'filename'` in `forge_model_reload`. `revert_target` is initialized as `""` and only set to a proper checkpoint info object after a merge; the fallback now uses `sd_models.get_closet_checkpoint_match()` to retrieve the current checkpoint when `revert_target` hasn't been populated yet.
 
@@ -125,6 +134,10 @@ You can set the calculation method. Please refer to [here](calcmode_en.md) for d
 |tensor| Instead of sum, exchange the tensors themselves at a certain ratio.   | Weight sum |
 |tensor2  |When the tensor has a large number of dimensions, exchanges are performed based on the second dimension. | Weight sum |
 |self  | The weight is multiplied by alpha.   |  Weight sum  |
+|slerp  | Spherical linear interpolation between A and B.   | Weight sum |
+|ties_sum  | TIES merging: trim, elect sign, merge.   | Weight sum |
+|add_ties_with_dare  | TIES + DARE: random pruning before sign election and merge.   | Add difference |
+|dropout  | Random weight dropout during merge.   | Weight sum |
 
 ### use MBW
 Block-by-blockc merging is enabled. Please set the weights in the Merge Block Weight. Enabling this will disable alpha and beta.
@@ -312,21 +325,22 @@ Deletes the currently loaded model. This is used to free up GPU memory when usin
 ## LoRA
 LoRA related functions. It is basically the same as kohya-ss scripts, but it supports block-by-block merging.
 
-Note: LyCORIS supports only single merge due to its special structure. Only ratios of 1,0 can be used for single merges. If any other value is used, the result will not match the Block weight LoRA result, even if the value is "SAME TO STRENGTH".
-LoCon will match reasonably well even with non-integers.
+Note: For LyCORIS block-weight scaling (single merge, no rank change), only ratios of 1 or 0 produce results identical to applying the LoRA at inference time. Non-integer ratios are mathematically approximate. LoCon matches well even with non-integer ratios.
 
-LoCon/LyCORIS merge to model is enable in web-ui 1.5 
-|  1.X,2.X     | LoRA  | LoCon | LyCORIS |
+LoCon/LyCORIS merge to model is enabled in web-ui 1.5.
+Supported LyCORIS algorithms: LoHa (plain and Tucker), LoKr (plain and factorized). OFT, GLoRA, and IA3 are not yet supported.
+
+|  1.X,2.X     | LoRA  | LoCon | LyCORIS (LoHa/LoKr) |
 |----------|-------|-------|---------|
 | Merge to Model |   Yes   | Yes   | Yes     |
-| Merge LoRAs   |    Yes   | Yes    | No     |
+| Merge LoRAs   |    Yes   | Yes    | Yes     |
 | Apply Block Weight(single)|Yes|Yes|Yes|
 | Extract From Models   | Yes    | No    | No      |
 
-|  XL     | LoRA  | LoCon | LyCORIS |
+|  XL     | LoRA  | LoCon | LyCORIS (LoHa/LoKr) |
 |----------|-------|-------|---------|
 | Merge to Model |   Yes   | Yes   | Yes     |
-| Merge LoRAs   |    Yes   | Yes    | No     |
+| Merge LoRAs   |    Yes   | Yes    | Yes     |
 | Extract From Models   | Yes    | No    | No      |
 
 
