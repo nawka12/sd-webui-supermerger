@@ -1757,11 +1757,17 @@ def get_flux_blocks(key):
 
 def read_model_state_dict(checkpoint_info, device):
     if forge or neo:
-        from backend.utils import load_torch_file
         load_model(checkpoint_info)
-        return load_torch_file(checkpoint_info.filename,device=CUDA if "cuda" in device else CPU)
+        if checkpoint_info.filename.lower().endswith(".safetensors"):
+            # Use safetensors.torch.load_file directly — Forge's load_torch_file wraps
+            # all exceptions into a generic "corrupt or invalid" error that hides the
+            # real cause and may behave differently between reForge and Forge Neo.
+            target_device = "cuda" if "cuda" in device else "cpu"
+            return load_file(checkpoint_info.filename, device=target_device)
+        from backend.utils import load_torch_file
+        return load_torch_file(checkpoint_info.filename, device=CUDA if "cuda" in device else CPU)
     else:
-        return sd_models.read_state_dict(checkpoint_info.filename,map_location=device)
+        return sd_models.read_state_dict(checkpoint_info.filename, map_location=device)
     
 def load_model(checkpoint_info, reload = False):
     if forge or neo:
