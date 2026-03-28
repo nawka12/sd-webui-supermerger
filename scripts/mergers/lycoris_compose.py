@@ -4,6 +4,7 @@ Pure-tensor LyCORIS composition helpers.
 No imports from sd-mecha, no A1111/WebUI dependencies.
 All compose functions move tensors to CPU before computation.
 """
+import math
 import torch
 
 
@@ -79,10 +80,13 @@ def _compose_lokr(lora_sd, key):
     while w1.dim() < w2.dim():
         w1 = w1.unsqueeze(-1)
 
+    # alpha/dim scaling only applies when lora_dim is known (i.e. a factorized path
+    # was taken). For fully pre-composed plain w1/w2 matrices there is no rank
+    # dimension, so alpha scaling is not applicable.
     alpha_val = lora_sd.get(key + ".alpha")
     if alpha_val is not None and lora_dim is not None:
         alpha_f = float(alpha_val)
-        scale = alpha_f / lora_dim if torch.isfinite(torch.tensor(alpha_f)) else 1.0
+        scale = alpha_f / lora_dim if math.isfinite(alpha_f) else 1.0
     else:
         scale = 1.0
 
