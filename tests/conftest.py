@@ -81,3 +81,25 @@ for mod_name, mod in [
 for name in ["backend", "backend.memory_management", "backend.utils"]:
     sys.modules.setdefault(name, _make_mock_module(name,
         load_torch_file=lambda *a, **kw: {}))
+
+# --- Stubs for pluslora.py heavy dependencies ---
+
+# gradio stub (UI framework not available in test env)
+_gradio_stub = _make_mock_module("gradio")
+for _attr in ["Blocks", "Row", "Column", "Textbox", "Button", "Dropdown",
+              "Slider", "Radio", "CheckboxGroup", "HTML", "Image",
+              "Number", "Checkbox"]:
+    setattr(_gradio_stub, _attr, lambda *a, **kw: None)
+sys.modules.setdefault("gradio", _gradio_stub)
+
+# scripts.A1111 / networks stub
+sys.modules.setdefault("scripts.A1111", _make_mock_module("scripts.A1111"))
+sys.modules.setdefault("scripts.A1111.networks", _make_mock_module("scripts.A1111.networks",
+    available_networks={},
+    extra_network_lora=None,
+))
+
+# scripts.kohyas stubs (heavy ML deps like diffusers not available in test env)
+sys.modules.setdefault("scripts.kohyas", _make_mock_module("scripts.kohyas"))
+sys.modules.setdefault("scripts.kohyas.extract_lora_from_models",
+    _make_mock_module("scripts.kohyas.extract_lora_from_models"))

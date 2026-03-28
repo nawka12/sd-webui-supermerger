@@ -22,6 +22,7 @@ from scripts.kohyas import extract_lora_from_models as ext
 from scripts.A1111 import networks as nets
 from scripts.mergers.model_util import filenamecutter, savemodel
 from scripts.mergers.mergers import extract_super, unload_forge, q_dequantize, q_quantize, qdtyper, prefixer, BLOCKIDFLUX
+from scripts.mergers.lycoris_compose import compose_delta as _compose_delta
 from tqdm import tqdm
 
 forge = launch_utils.git_tag()[0:2] == "f2"
@@ -554,10 +555,16 @@ def merge_lora_models(models, ratios, sets, locon, calc_precision, device):
 
 def merge_lora_models_dim(models, ratios, new_rank, sets, device, calc_precision):
     CHUNK_SIZE = 50
+    KNOWN_DOWN_SUFFIXES = (
+        ".lora_down.weight",
+        ".lokr_w1",
+        ".lokr_w1_a",
+        ".hada_w1_a",
+    )
 
     isv2 = False
     merge_dtype = str_to_dtype(calc_precision)
-    
+
     lora_sds = []
     print("Loading LoRA models...")
     for model in models:
@@ -568,11 +575,12 @@ def merge_lora_models_dim(models, ratios, new_rank, sets, device, calc_precision
     all_lora_module_names = set()
     for lora_sd in lora_sds:
         for key in lora_sd.keys():
-            if 'lora_down' in key:
-                lora_module_name = key[:key.rfind(".lora_down")]
-                all_lora_module_names.add(lora_module_name)
-    
-    all_lora_module_names = sorted(list(all_lora_module_names))
+            for suffix in KNOWN_DOWN_SUFFIXES:
+                if key.endswith(suffix):
+                    all_lora_module_names.add(key[: -len(suffix)])
+                    break
+
+    all_lora_module_names = sorted(all_lora_module_names)
     total_modules = len(all_lora_module_names)
     total_chunks = (total_modules + CHUNK_SIZE - 1) // CHUNK_SIZE
     print(f"Found {total_modules} unique modules to merge. Processing in {total_chunks} chunks of {CHUNK_SIZE}.")
@@ -581,56 +589,55 @@ def merge_lora_models_dim(models, ratios, new_rank, sets, device, calc_precision
 
     with tqdm(total=total_modules, desc="Overall Progress") as pbar_overall:
         for i in range(0, total_modules, CHUNK_SIZE):
-            chunk = all_lora_module_names[i:i + CHUNK_SIZE]
-            
-            pbar_overall.set_description(f"Processing Chunk {i//CHUNK_SIZE + 1}/{total_chunks}")
+            chunk = all_lora_module_names[i : i + CHUNK_SIZE]
+            pbar_overall.set_description(f"Processing Chunk {i // CHUNK_SIZE + 1}/{total_chunks}")
 
             merged_sd_chunk = {}
             original_shapes_chunk = {}
 
             for lora_module_name in chunk:
                 merged_weight = None
-                
+
                 for j, lora_sd in enumerate(lora_sds):
                     ratio = ratios[j]
-                    down_key = lora_module_name + '.lora_down.weight'
-                    if down_key not in lora_sd:
+
+                    # Find a key present in this sd for block-ratio lookup
+                    ref_key = None
+                    for suffix in KNOWN_DOWN_SUFFIXES:
+                        candidate = lora_module_name + suffix
+                        if candidate in lora_sd:
+                            ref_key = candidate
+                            break
+                    if ref_key is None:
                         continue
 
-                    down_weight = lora_sd[down_key].to(device, non_blocking=True)
-                    up_weight = lora_sd[lora_module_name + '.lora_up.weight'].to(device, non_blocking=True)
-                    
-                    network_dim = down_weight.size(0)
-                    alpha = lora_sd.get(lora_module_name + '.alpha', torch.tensor(network_dim)).to(device, non_blocking=True)
-                    scale = (alpha / network_dim) if network_dim else 0
+                    delta = _compose_delta(lora_sd, lora_module_name)
+                    if delta is None:
+                        continue
 
-                    conv2d = len(down_weight.size()) == 4
-                    if not conv2d:
-                        diff = (up_weight @ down_weight)
-                    else:
-                        diff = torch.nn.functional.conv2d(
-                            down_weight.permute(1, 0, 2, 3), up_weight
-                        ).permute(1, 0, 2, 3)
-
-                    block_ratio = ratio[blockfromkey(down_key, LBLCOKS26, isv2)]
+                    block_ratio = ratio[blockfromkey(ref_key, LBLCOKS26, isv2)]
                     fugou = 1
                     if "same to Strength" in sets:
-                        block_ratio, fugou = (block_ratio ** 0.5, 1) if block_ratio > 0 else (abs(block_ratio) ** 0.5, -1)
-                    
+                        block_ratio, fugou = (
+                            (block_ratio ** 0.5, 1)
+                            if block_ratio > 0
+                            else (abs(block_ratio) ** 0.5, -1)
+                        )
+
                     if merged_weight is None:
-                        merged_weight = (block_ratio * diff * scale * fugou)
+                        merged_weight = block_ratio * delta * fugou
                     else:
-                        merged_weight += (block_ratio * diff * scale * fugou)
+                        merged_weight += block_ratio * delta * fugou
 
                 if merged_weight is not None:
                     merged_sd_chunk[lora_module_name] = merged_weight
-                    if len(merged_weight.shape) == 4:
+                    if merged_weight.dim() == 4:
                         original_shapes_chunk[lora_module_name] = merged_weight.shape
 
             with torch.no_grad():
                 for lora_module_name, mat in merged_sd_chunk.items():
                     mat = mat.to(torch.float)
-                
+
                     conv2d = lora_module_name in original_shapes_chunk
                     if conv2d:
                         out_dim, in_dim, k_h, k_w = original_shapes_chunk[lora_module_name]
@@ -657,9 +664,9 @@ def merge_lora_models_dim(models, ratios, new_rank, sets, device, calc_precision
                         new_up_weight = new_up_weight.unsqueeze(2).unsqueeze(3)
                         new_down_weight = new_down_weight.view(new_rank, in_dim, k_h, k_w)
 
-                    merged_lora_sd[lora_module_name + '.lora_up.weight'] = new_up_weight.to("cpu").contiguous()
-                    merged_lora_sd[lora_module_name + '.lora_down.weight'] = new_down_weight.to("cpu").contiguous()
-                    merged_lora_sd[lora_module_name + '.alpha'] = torch.tensor(float(new_rank))
+                    merged_lora_sd[lora_module_name + ".lora_up.weight"] = new_up_weight.to("cpu").contiguous()
+                    merged_lora_sd[lora_module_name + ".lora_down.weight"] = new_down_weight.to("cpu").contiguous()
+                    merged_lora_sd[lora_module_name + ".alpha"] = torch.tensor(float(new_rank))
 
                     pbar_overall.update(1)
 
